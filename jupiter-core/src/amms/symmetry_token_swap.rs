@@ -84,10 +84,7 @@ impl SymmetryTokenSwap {
             pow_num /= pow_den;
             pow_den = 1;
         }
-        (amount as u128)
-            .checked_mul(pyth_price.price as u128).unwrap()
-            .checked_mul(pow_num as u128).unwrap()
-            .checked_div(pow_den as u128).unwrap() as u64
+        ((amount as u128) * (pyth_price.price as u128) * pow_num / pow_den) as u64
     }
 
     pub fn amount_from_usd_value(usd_value: u64, decimals: u64, pyth_price: SimplePrice) -> u64 {
@@ -100,17 +97,13 @@ impl SymmetryTokenSwap {
             pow_num /= pow_den;
             pow_den = 1;
         }
-        (usd_value as u128)
-            .checked_mul(pow_den as u128).unwrap()
-            .checked_div(pyth_price.price as u128).unwrap()
-            .checked_div(pow_num as u128).unwrap() as u64
+        ((usd_value as u128) * pow_den / (pyth_price.price as u128) / pow_num) as u64
     }
 
     pub fn mul_div(a: u64, b: u64, c: u64) -> u64 {
         match c {
             0 => 0,
-            _ => (a as u128).checked_mul(b as u128).unwrap()
-                            .checked_div(c as u128).unwrap() as u64
+            _ => ((a as u128) * (b as u128) / (c as u128)) as u64
         }
     }
 
