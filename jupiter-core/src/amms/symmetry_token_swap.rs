@@ -31,6 +31,10 @@ impl SymmetryTokenSwap {
 
     const SYMMETRY_PROGRAM_SWAP_INSTRUCTION_ID: u64 = 1448820615868184176;
 
+    const SELL_PRICE: u8 = 0;
+    const BUY_PRICE: u8 = 1;
+    const AVG_PRICE: u8 = 2;
+
     pub fn from_keyed_account(fund_state_account: &KeyedAccount, token_info_account: &KeyedAccount) -> Result<Self> {
         let fund_state = FundState::load(&fund_state_account.account.data);
         let token_info = TokenInfo::load(&token_info_account.account.data);
@@ -74,7 +78,7 @@ impl SymmetryTokenSwap {
         }
     }
 
-    pub fn usd_value(amount: u64, decimals: u64, pyth_price: SimplePrice) -> u64 {
+    pub fn usd_value(amount: u64, decimals: u64, pyth_price: SimplePrice, low_or_high: u8) -> u64 {
         let mut pow_den: u128 = u128::pow(10,decimals as u32 + (-pyth_price.expo) as u32);
         let mut pow_num: u128 = 1000000;
         if pow_den > pow_num {
@@ -84,10 +88,15 @@ impl SymmetryTokenSwap {
             pow_num /= pow_den;
             pow_den = 1;
         }
-        ((amount as u128) * (pyth_price.price as u128) * pow_num / pow_den) as u64
+        let price = match low_or_high {
+            0 => pyth_price.low,
+            1 => pyth_price.high,
+            _ => pyth_price.price
+        };
+        ((amount as u128) * (price as u128) * pow_num / pow_den) as u64
     }
 
-    pub fn amount_from_usd_value(usd_value: u64, decimals: u64, pyth_price: SimplePrice) -> u64 {
+    pub fn amount_from_usd_value(usd_value: u64, decimals: u64, pyth_price: SimplePrice, low_or_high: u8) -> u64 {
         let mut pow_den: u128 = u128::pow(10,decimals as u32 + (-pyth_price.expo) as u32);
         let mut pow_num: u128 = 1000000;
         if pow_den > pow_num {
@@ -97,7 +106,12 @@ impl SymmetryTokenSwap {
             pow_num /= pow_den;
             pow_den = 1;
         }
-        ((usd_value as u128) * pow_den / (pyth_price.price as u128) / pow_num) as u64
+        let price = match low_or_high {
+            0 => pyth_price.low,
+            1 => pyth_price.high,
+            _ => pyth_price.price
+        };
+        ((usd_value as u128) * pow_den / (price as u128) / pow_num) as u64
     }
 
     pub fn mul_div(a: u64, b: u64, c: u64) -> u64 {
@@ -122,12 +136,12 @@ impl SymmetryTokenSwap {
         let mut current_output_amount: u64 = 0;
     
         let expo: u64 = u64::pow(10, decimals as u32);
-        let mut pyth_price: u64 = SymmetryTokenSwap::usd_value(
+        let pyth_price: u64 = SymmetryTokenSwap::usd_value(
             u64::pow(10, decimals as u32),
             decimals as u64,
             pyth,
+            SymmetryTokenSwap::BUY_PRICE,
         );
-        pyth_price = SymmetryTokenSwap::mul_div(pyth_price, 1000000 + 5, 1000000);
         let mut current_price = pyth_price;
     
         let mut amount_from_target_weight: u64 = 0;
@@ -171,12 +185,12 @@ impl SymmetryTokenSwap {
         let mut amount_left: u64 = amount;
     
         let expo: u64 = u64::pow(10, decimals as u32);
-        let mut pyth_price = SymmetryTokenSwap::usd_value(
+        let pyth_price = SymmetryTokenSwap::usd_value(
             u64::pow(10, decimals as u32),
             decimals as u64,
-            pyth
+            pyth,
+            SymmetryTokenSwap::SELL_PRICE,
         );
-        pyth_price = SymmetryTokenSwap::mul_div(pyth_price, 1000000 - 5, 1000000);
         let mut current_price = pyth_price;
     
         let mut amount_from_target_weight: u64 = 0;
@@ -268,6 +282,7 @@ impl Amm for SymmetryTokenSwap {
                 self.fund_state.current_comp_amount[i],
                 self.token_info.decimals[token] as u64,
                 self.token_info.oracle_price[token],
+                SymmetryTokenSwap::AVG_PRICE,
             );
         }
 
@@ -278,17 +293,20 @@ impl Amm for SymmetryTokenSwap {
             SymmetryTokenSwap::mul_div(self.fund_state.target_weight[from_token_index], fund_worth, self.fund_state.weight_sum),
             self.token_info.decimals[from_token_id as usize] as u64,
             from_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
         let to_token_target_amount: u64 = SymmetryTokenSwap::amount_from_usd_value(
             SymmetryTokenSwap::mul_div(self.fund_state.target_weight[to_token_index], fund_worth, self.fund_state.weight_sum),
             self.token_info.decimals[to_token_id as usize] as u64,
             to_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
 
         let from_token_value = SymmetryTokenSwap::usd_value(
             from_amount,
             self.token_info.decimals[from_token_id as usize] as u64,
             from_token_price,
+            SymmetryTokenSwap::SELL_PRICE,
         );
 
         let value = match from_token_id as usize {
@@ -308,6 +326,7 @@ impl Amm for SymmetryTokenSwap {
                 value,
                 self.token_info.decimals[to_token_id as usize] as u64,
                 to_token_price,
+                SymmetryTokenSwap::BUY_PRICE,
             ),
             _ => SymmetryTokenSwap::calculate_output_amount_for_buying_asset(
                 self.fund_state.current_comp_amount[to_token_index],
@@ -319,18 +338,12 @@ impl Amm for SymmetryTokenSwap {
             ),
         };
 
-        let mut value_without_curve = from_token_value;
-        if from_token_id != 0 as u64 {
-            value_without_curve = SymmetryTokenSwap::mul_div(value_without_curve, 1000000 - 5, 1000000)
-        }
         let mut amount_without_curve = SymmetryTokenSwap::amount_from_usd_value(
-            value_without_curve,
+            from_token_value,
             self.token_info.decimals[to_token_id as usize] as u64,
             to_token_price,
+            SymmetryTokenSwap::BUY_PRICE,
         );
-        if to_token_id != 0 as u64 {
-            amount_without_curve = SymmetryTokenSwap::mul_div(amount_without_curve, 1000000 - 5, 1000000);
-        }
         
         let mut fee_due_nel: u64 = 0;
         if amount_without_curve > self.fund_state.current_comp_amount[to_token_index] {
@@ -352,22 +365,26 @@ impl Amm for SymmetryTokenSwap {
             self.fund_state.current_comp_amount[from_token_index],
             self.token_info.decimals[from_token_id as usize] as u64,
             from_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
         fund_worth = fund_worth - SymmetryTokenSwap::usd_value(
             self.fund_state.current_comp_amount[to_token_index],
             self.token_info.decimals[to_token_id as usize] as u64,
             to_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
 
         let from_token_worth_after_swap: u64 = SymmetryTokenSwap::usd_value(
             self.fund_state.current_comp_amount[from_token_index] + from_amount,
             self.token_info.decimals[from_token_id as usize] as u64,
             from_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
         let to_token_worth_after_swap: u64 = SymmetryTokenSwap::usd_value(
             self.fund_state.current_comp_amount[to_token_index] - amount_without_curve + fund_fee,
             self.token_info.decimals[to_token_id as usize] as u64,
             to_token_price,
+            SymmetryTokenSwap::AVG_PRICE,
         );
         fund_worth = fund_worth + from_token_worth_after_swap;
         fund_worth = fund_worth + to_token_worth_after_swap;
@@ -537,7 +554,7 @@ fn test_symetry_token_swap() {
 
     /* Get Quote */
     println!("-------------------");
-    let in_amount: u64 = 1_000_000_000_000; // 1000 SOL -> ? USDC
+    let in_amount: u64 = 100_000_000_000; // 1000 SOL -> ? USDC
     let quote = token_swap
         .quote(&QuoteParams {
             input_mint: from_token_mint,

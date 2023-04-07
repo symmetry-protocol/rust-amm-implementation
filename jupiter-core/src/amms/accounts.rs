@@ -67,7 +67,7 @@ impl TokenInfo {
             pda_ta[i] = Pubkey::new_from_array(account_data[(6416 + i*32)..(6448 + i*32)].try_into().unwrap());
             oracle[i] = Pubkey::new_from_array(account_data[(18816 + i*32)..(18848 + i*32)].try_into().unwrap());
             decimals[i] = account_data[25216 + i];
-            oracle_price.push(SimplePrice { expo: 0, price: 0 });
+            oracle_price.push(SimplePrice { expo: 0, price: 0, low: 0, high: 0 });
         }
         TokenInfo {
             token_mint,
@@ -150,6 +150,8 @@ impl CurveData {
 pub struct SimplePrice {
     pub expo: i32,
     pub price: i64,
+    pub low: i64,
+    pub high: i64,
 }
 
 impl SimplePrice {
@@ -157,9 +159,14 @@ impl SimplePrice {
     pub fn load<'a>(account_data: &Vec<u8>) -> SimplePrice {
         let expo: i32 = i32::from_le_bytes(account_data[20..24].try_into().unwrap());
         let price: i64 =  i64::from_le_bytes(account_data[208..216].try_into().unwrap());
+        let conf: u128 = u64::from_le_bytes(account_data[216..224].try_into().unwrap()) as u128;
+        let low: i64 = ((price as u128 * (100000 - 1)) / 100000 - conf / 2) as i64;
+        let high: i64 = ((price as u128 * (100000 + 1)) / 100000 + conf / 2) as i64;
         SimplePrice {
             expo: expo,
             price: price,
+            low: low,
+            high: high,
         }
     }
 }
