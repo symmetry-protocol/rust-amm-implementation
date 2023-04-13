@@ -1,4 +1,5 @@
 use anchor_lang::prelude::AccountMeta;
+use anchor_lang::prelude::*;
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -220,6 +221,17 @@ impl SymmetryTokenSwap {
     
         current_output_value
     }
+
+    fn validate_price(
+        price: SimplePrice
+    ) {
+        if Clock::get().unwrap_or_default().slot >= price.slot + 50 || price.status != 1{
+            panic!();
+        }
+        if price.price < 0 || price.conf * 10 > price.price as u128 {
+            panic!();
+        }
+    }
     
 }
 
@@ -278,6 +290,7 @@ impl Amm for SymmetryTokenSwap {
         let mut fund_worth = 0;
         for i in 0..(self.fund_state.num_of_tokens as usize) {
             let token = self.fund_state.current_comp_token[i] as usize;
+            SymmetryTokenSwap::validate_price(self.token_info.oracle_price[token]);
             fund_worth += SymmetryTokenSwap::usd_value(
                 self.fund_state.current_comp_amount[i],
                 self.token_info.decimals[token] as u64,

@@ -67,7 +67,7 @@ impl TokenInfo {
             pda_ta[i] = Pubkey::new_from_array(account_data[(6416 + i*32)..(6448 + i*32)].try_into().unwrap());
             oracle[i] = Pubkey::new_from_array(account_data[(18816 + i*32)..(18848 + i*32)].try_into().unwrap());
             decimals[i] = account_data[25216 + i];
-            oracle_price.push(SimplePrice { expo: 0, price: 0, low: 0, high: 0 });
+            oracle_price.push(SimplePrice { expo: 0, price: 0, low: 0, high: 0, conf: 0, status: 0, slot: 0 });
         }
         TokenInfo {
             token_mint,
@@ -152,14 +152,19 @@ pub struct SimplePrice {
     pub price: i64,
     pub low: i64,
     pub high: i64,
+    pub conf: u128,
+    pub status: u32,
+    pub slot: u64,
 }
 
 impl SimplePrice {
     #[inline]
     pub fn load<'a>(account_data: &Vec<u8>) -> SimplePrice {
+        let valid_slot: u64 =  u64::from_le_bytes(account_data[40..48].try_into().unwrap());
         let expo: i32 = i32::from_le_bytes(account_data[20..24].try_into().unwrap());
         let price: i64 =  i64::from_le_bytes(account_data[208..216].try_into().unwrap());
         let conf: u128 = u64::from_le_bytes(account_data[216..224].try_into().unwrap()) as u128;
+        let status: u32 = u32::from_le_bytes(account_data[224..228].try_into().unwrap());
         let low: i64 = ((price as u128 * (100000 - 1)) / 100000 - conf / 2) as i64;
         let high: i64 = ((price as u128 * (100000 + 1)) / 100000 + conf / 2) as i64;
         SimplePrice {
@@ -167,6 +172,9 @@ impl SimplePrice {
             price: price,
             low: low,
             high: high,
+            conf: conf,
+            status: status,
+            slot: valid_slot
         }
     }
 }
