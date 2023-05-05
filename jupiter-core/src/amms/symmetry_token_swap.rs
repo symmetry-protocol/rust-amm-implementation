@@ -387,14 +387,19 @@ impl Amm for SymmetryTokenSwap {
             SymmetryTokenSwap::AVG_PRICE,
         );
 
+        let max_from_token_change = from_amount * 101 / 100;
         let from_token_worth_after_swap: u64 = SymmetryTokenSwap::usd_value(
-            self.fund_state.current_comp_amount[from_token_index] + from_amount,
+            self.fund_state.current_comp_amount[from_token_index] + max_from_token_change,
             self.token_info.decimals[from_token_id as usize] as u64,
             from_token_price,
             SymmetryTokenSwap::AVG_PRICE,
         );
+        let mut max_to_token_change = (amount_without_curve - fund_fee) * 101 / 100;
+        if max_to_token_change > self.fund_state.current_comp_amount[to_token_index] {
+            max_to_token_change = self.fund_state.current_comp_amount[to_token_index]
+        }
         let to_token_worth_after_swap: u64 = SymmetryTokenSwap::usd_value(
-            self.fund_state.current_comp_amount[to_token_index] - amount_without_curve + fund_fee,
+            self.fund_state.current_comp_amount[to_token_index] - max_to_token_change,
             self.token_info.decimals[to_token_id as usize] as u64,
             to_token_price,
             SymmetryTokenSwap::AVG_PRICE,
